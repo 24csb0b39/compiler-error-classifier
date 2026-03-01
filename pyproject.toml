@@ -1,0 +1,8 @@
+[project]
+name = "compiler-error-classifier"
+version = "0.3.0"
+description = "Week 3: Lexer + Parser"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=src --cov-report=html --cov-report=term-missing"
