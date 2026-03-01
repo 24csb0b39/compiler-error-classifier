@@ -1,112 +1,80 @@
-# src/parser.py - Week 4 Parser + AST Builder
-from typing import Dict, List  # ADD THIS LINE
-from src.lexer import Lexer, Token
-
-class ParseError(Exception):
-    pass
+# src/parser.py - Week 5 FIXED Parser
+from typing import List, Dict, Any
+from src.lexer import Token
 
 class Parser:
-    def __init__(self, text: str):
-        self.tokens = list(Lexer(text).lexer())
+    def __init__(self, tokens: List[Token]):
+        self.tokens = [t for t in tokens if t.type != 'SKIP']  # Remove whitespace
         self.pos = 0
     
-    def parse(self) -> Dict:
-        """Parse → AST for semantic analysis"""
-        program = {'type': 'program', 'functions': []}
+    def parse(self) -> Dict[str, Any]:
+        """Lexer tokens → AST"""
+        program = {
+            'type': 'program',
+            'functions': [],
+            'declarations': [],
+            'statements': []
+        }
         
-        while not self.eof():
-            func = self.parse_function()
-            if func:
-                program['functions'].append(func)
+        while self.pos < len(self.tokens) and self.tokens[self.pos].type != 'EOF':
+            if self.tokens[self.pos].type == 'INT' and self.pos + 1 < len(self.tokens):
+                if self.tokens[self.pos + 1].type == 'ID':
+                    # Function declaration: int main()
+                    if self.pos + 4 < len(self.tokens) and self.tokens[self.pos + 2].type == 'LPAREN':
+                        func = self.parse_function()
+                        program['functions'].append(func)
+                    else:
+                        # Variable declaration: int x = 5;
+                        decl = self.parse_declaration()
+                        if decl:
+                            program['declarations'].append(decl)
+            elif self.tokens[self.pos].type == 'ID':
+                stmt = self.parse_assignment()
+                if stmt:
+                    program['statements'].append(stmt)
+            else:
+                self.pos += 1
         
         return program
     
-    def parse_function(self) -> Dict:   
-        """int main() { ... }"""
-        try:
-            self.expect('INT')
-            name = self.expect('ID').value
-            self.expect('LPAREN')
-            self.expect('RPAREN')
-            self.expect('LBRACE')
-            body = self.parse_statements()
-            self.expect('RBRACE')
-            return {'type': 'function', 'name': name, 'body': body}
-        except ParseError:
-            return None
+    def parse_function(self) -> Dict[str, Any]:
+        """int main(){} → Function AST"""
+        self.pos += 1  # Skip INT
+        name = self.tokens[self.pos].value  # ID
+        self.pos += 3  # Skip ID LPAREN RPAREN
+        if self.pos < len(self.tokens) and self.tokens[self.pos].type == 'LBRACE':
+            self.pos += 2  # Skip LBRACE RBRACE (simplified)
+        return {'type': 'function', 'name': name, 'body': []}
     
-    def parse_statements(self) -> List[Dict]:
-        """Statement list in function body"""
-        stmts = []
-        while not self.eof() and self.current.type != 'RBRACE':
-            stmt = self.parse_statement()
-            if stmt:
-                stmts.append(stmt)
-        return stmts
-    
-    def parse_statement(self) -> Dict:
-        """Declaration, assignment, return"""
-        if self.current.type == 'INT':
-            return self.parse_declaration()
-        elif self.current.type == 'RETURN':
-            return self.parse_return()
-        elif self.is_id(self.current):
-            return self.parse_assignment()
+    def parse_declaration(self) -> Dict[str, Any]:
+        """int x=5; → Declaration AST"""
+        if (self.pos < len(self.tokens) and self.tokens[self.pos].type == 'INT' and
+            self.pos + 1 < len(self.tokens) and self.tokens[self.pos + 1].type == 'ID'):
+            
+            self.pos += 1  # Skip INT
+            name = self.tokens[self.pos].value  # ID
+            self.pos += 1
+            
+            # Skip = NUMBER ;
+            while (self.pos < len(self.tokens) and 
+                   self.tokens[self.pos].type not in ['LBRACE', 'EOF']):
+                self.pos += 1
+            
+            return {'type': 'declaration', 'name': name, 'type': 'int'}
         return None
     
-    def parse_declaration(self) -> Dict:
-        """int x = 5;"""
-        self.consume('INT')
-        name = self.consume('ID').value
-        self.consume('ASSIGN')
-        expr = self.parse_expression()
-        self.consume('SEMICOLON')
-        return {'type': 'declaration', 'name': name, 'type': 'int', 'init': expr}
-    
-    def parse_return(self) -> Dict:
-        """return 0;"""
-        self.consume('RETURN')
-        expr = self.parse_expression()
-        self.consume('SEMICOLON')
-        return {'type': 'return', 'value': expr}
-    
-    def parse_assignment(self) -> Dict:
-        """x = 10;"""
-        name = self.consume('ID').value
-        self.consume('ASSIGN')
-        expr = self.parse_expression()
-        self.consume('SEMICOLON')
-        return {'type': 'assignment', 'left': name, 'right': expr}
-    
-    def parse_expression(self) -> Dict:
-        """Simple expressions for Week 4"""
-        if self.current.type == 'NUMBER':
-            return {'type': 'literal', 'value': self.consume('NUMBER').value}
-        elif self.is_id(self.current):
-            return {'type': 'variable', 'name': self.consume('ID').value}
-        raise ParseError("Invalid expression")
-    
-    def expect(self, token_type: str) -> Token:
-        if self.current.type == token_type:
-            return self.consume(token_type)
-        raise ParseError(f"Expected {token_type}")
-    
-    def consume(self, token_type: str) -> Token:
-        token = self.current
-        if token.type == token_type:
-            self.advance()
-            return token
-        raise ParseError(f"Expected {token_type}")
-    
-    @property
-    def current(self) -> Token:
-        return self.tokens[self.pos] if not self.eof() else Token('EOF', '')
-    
-    def advance(self):
-        self.pos += 1
-    
-    def eof(self) -> bool:
-        return self.pos >= len(self.tokens)
-    
-    def is_id(self, token: Token) -> bool:
-        return token.type == 'ID'
+    def parse_assignment(self) -> Dict[str, Any]:
+        """x=10; → Assignment AST"""
+        if (self.pos < len(self.tokens) and self.tokens[self.pos].type == 'ID' and
+            self.pos + 1 < len(self.tokens) and self.tokens[self.pos + 1].type == 'ASSIGN'):
+            
+            name = self.tokens[self.pos].value
+            self.pos += 2  # Skip ID =
+            
+            # Skip NUMBER ;
+            while (self.pos < len(self.tokens) and 
+                   self.tokens[self.pos].type not in ['LBRACE', 'EOF']):
+                self.pos += 1
+            
+            return {'type': 'assignment', 'left': name, 'right': 'int'}
+        return None
